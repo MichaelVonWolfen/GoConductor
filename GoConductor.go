@@ -1,50 +1,115 @@
 package main
 
 import (
-	"context"
-	"log"
+	"flag"
+	"fmt"
+	"gopkg.in/yaml.v3"
+	"os"
+	"os/exec"
+	"path"
+	"syscall"
 	"time"
-
-	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func failOnError(err error, msg string) {
-	if err != nil {
-		log.Panicf("%s: %s", msg, err)
+type ServiceConfig struct {
+	MinSpawn  int `yaml:"min_spawn"`
+	MaxSpawn  int `yaml:"max_spawn"`
+	SpawnRule int `yaml:"spawn_rule"`
+	KillRule  int `yaml:"kill_rule"`
+}
+type RunningService struct {
+	ProcessId int
+	Config    ServiceConfig
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
 	}
 }
 
+func startService(serviceName string, serviceConfig ServiceConfig, runningServices *map[string][]RunningService) {
+	fmt.Println(serviceName)
+	e, err := os.Executable()
+	//err = exec.Command("ls").Start()
+	if err != nil {
+		fmt.Println("Error starting the process:", err)
+		return
+	}
+	cmd := exec.Command(fmt.Sprintf("%s/%s/%s", path.Dir(e), serviceName, serviceName))
+
+	outputFile, err := os.Create(fmt.Sprintf("%s.output.txt", serviceName))
+	if err != nil {
+		fmt.Println("Error creating output file for service:", serviceName, err)
+		return
+	}
+	cmd.Stdout = outputFile
+	cmd.Stderr = outputFile
+
+	err = cmd.Start()
+	if err != nil {
+		fmt.Println("Error starting the process:", err)
+		return
+	}
+	fmt.Println("Process started:", cmd.Process.Pid)
+	time.Sleep(10 * time.Second)
+	fmt.Println("Sending SIGTERM...")
+	err = cmd.Process.Signal(syscall.SIGTERM)
+	if err != nil {
+		fmt.Println("Error sending SIGTERM:", err)
+		return
+	}
+	// Wait for the process to exit gracefully
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Println("Process exited with error:", err)
+		} else {
+			fmt.Println("Process exited gracefully")
+		}
+	case <-time.After(5 * time.Second): // If it doesn't exit, force kill
+		fmt.Println("Process did not exit in time, killing it...")
+		err := cmd.Process.Kill()
+		if err != nil {
+			return
+		}
+	}
+
+	fmt.Println("Process terminated")
+}
 func main() {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
-	failOnError(err, "Failed to connect to RabbitMQ")
-	defer conn.Close()
+	// Define command-line flags with descriptions
+	configPath := flag.String("configPath", "conductor.config.yaml", "Path to config file")
+	flag.Parse()
 
-	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
-	defer ch.Close()
+	data, err := os.ReadFile(*configPath)
+	check(err)
+	var services map[string]ServiceConfig
+	var runningServices map[string][]RunningService
 
-	q, err := ch.QueueDeclare(
-		"hello", // name
-		false,   // durable
-		false,   // delete when unused
-		false,   // exclusive
-		false,   // no-wait
-		nil,     // arguments
-	)
-	failOnError(err, "Failed to declare a queue")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	err = yaml.Unmarshal(data, &services)
+	check(err)
 
-	body := "Hello World!"
-	err = ch.PublishWithContext(ctx,
-		"",     // exchange
-		q.Name, // routing key
-		false,  // mandatory
-		false,  // immediate
-		amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        []byte(body),
-		})
-	failOnError(err, "Failed to publish a message")
-	log.Printf(" [x] Sent %s\n", body)
+	fmt.Println("%+v", services)
+
+	/*
+		TODO:
+			- Initiate one process for each key with the configurations provided in the values
+			- Monitor the initiated processes and create a new one or kill one on a need basis of rb
+			(ratio between number of elements remained in the associated queue and the total number of processes running associated)
+				- if rb > spawn_rule and max_spawn > current_nb_of_processes -> spawn another process
+				- if rb < kill_rule and min_spawn < current_nb_of_processes -> send kill message to a process
+				- if queue is empty -> kill all spawns
+			- when application is shutdown kill all the services to ensure there are no orphans alive
+	*/
+	for k, v := range services {
+		fmt.Printf("%s: %+v\n", k, v)
+		startService(k, v, &runningServices)
+	}
+
 }

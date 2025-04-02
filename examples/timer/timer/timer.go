@@ -1,14 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"log"
+	"time"
 )
 
 func failOnError(err error, msg string) {
 	if err != nil {
 		log.Panicf("%s: %s", msg, err)
 	}
+}
+
+type Message struct {
+	Body  string
+	Sleep int
 }
 
 func main() {
@@ -19,7 +26,6 @@ func main() {
 	ch, err := conn.Channel()
 	failOnError(err, "Failed to open a channel")
 	defer ch.Close()
-
 	q, err := ch.QueueDeclare(
 		"hello", // name
 		false,   // durable
@@ -29,6 +35,12 @@ func main() {
 		nil,     // arguments
 	)
 	failOnError(err, "Failed to declare a queue")
+	err = ch.Qos(
+		1,     // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+	failOnError(err, "Failed to set QoS")
 
 	msgs, err := ch.Consume(
 		q.Name, // queue
@@ -45,8 +57,12 @@ func main() {
 
 	go func() {
 		for d := range msgs {
-			log.Printf("Received the msg: %s", d.Body)
-			//time.Sleep(1 * time.Second)
+			var body Message
+			err := json.Unmarshal(d.Body, &body)
+			failOnError(err, "Failed to parse a message")
+			failOnError(err, "Failed to parse a string to number")
+			log.Printf("Received the msg: %s and will sleep for %d", body.Body, body.Sleep)
+			time.Sleep(time.Duration(body.Sleep) * time.Second)
 		}
 	}()
 

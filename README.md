@@ -6,6 +6,7 @@ by reading the data from a file that contains something like:
 ```yaml
 ---
 microservice_name:
+  - file_path: /path/to/file
   - min_spawn: 1 #(default: 1 and can't be lower than 1)
   - max_spawn: Inf # (default is INT.MAX)
   - spawn_rule: 6 
@@ -13,6 +14,7 @@ microservice_name:
   - 
 ...
 ```
+- **file_path** - The relative filepath to the runnable program
 - **min_spawn** - The minimum processes that the conductor can create (default: 1 and can't be lower than 1)
 - **max_spawn** - The maximum number of processes that the conductor can create (default is INT.MAX)
 - **spawn_rule** - If the ration between the division of the available_elements_in_queue over spawned_microservices_nb is higher than the **spawn_rule** than the conductor will spawn a new service
