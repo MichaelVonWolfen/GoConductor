@@ -1,15 +1,21 @@
 package main
 
 import (
+	"GoConductor/rsc/AnsiColors"
 	"encoding/json"
+	"flag"
+	"fmt"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"log"
+	"os"
 	"time"
 )
 
+var TimerLog *log.Logger
+
 func failOnError(err error, msg string) {
 	if err != nil {
-		log.Panicf("%s: %s", msg, err)
+		TimerLog.Panicf("%s: %s", msg, err)
 	}
 }
 
@@ -19,6 +25,10 @@ type Message struct {
 }
 
 func main() {
+	name := flag.String("name", "Timer", "Program Name")
+	flag.Parse()
+	TimerLog = log.New(os.Stdout, fmt.Sprintf("%s%s:%s", AnsiColors.MagentaText, *name, AnsiColors.ResetText), log.LstdFlags)
+
 	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
@@ -28,7 +38,7 @@ func main() {
 	defer ch.Close()
 	q, err := ch.QueueDeclare(
 		"hello", // name
-		false,   // durable
+		true,    // durable
 		false,   // delete when unused
 		false,   // exclusive
 		false,   // no-wait
@@ -61,11 +71,11 @@ func main() {
 			err := json.Unmarshal(d.Body, &body)
 			failOnError(err, "Failed to parse a message")
 			failOnError(err, "Failed to parse a string to number")
-			log.Printf("Received the msg: %s and will sleep for %d", body.Body, body.Sleep)
+			TimerLog.Printf("Received the msg: %s and will sleep for %d", body.Body, body.Sleep)
 			time.Sleep(time.Duration(body.Sleep) * time.Second)
 		}
 	}()
 
-	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+	TimerLog.Printf(" [*] Waiting for messages. To exit press CTRL+C")
 	<-forever
 }

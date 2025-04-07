@@ -4,8 +4,8 @@ producer:
   spawn_rule: 6
   kill_rule: 2
 
-timer:
-  min_spawn: 1 #(default: 1 and can't be lower than 1)
-  max_spawn: 10 # (default is INT.MAX)
-  spawn_rule: 6
-  kill_rule: 2
+#timer:
+#  min_spawn: 1 #(default: 1 and can't be lower than 1)
+#  max_spawn: 10 # (default is INT.MAX)
+#  spawn_rule: 6
+#  kill_rule: 2
